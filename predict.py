@@ -1,17 +1,26 @@
-import os
-import random
-from datetime import datetime
+# Prediction interface for Cog ⚙️
+# https://github.com/replicate/cog/blob/main/docs/python.md
 
-import gradio as gr
+from cog import BasePredictor, Path, Input
+
+import argparse
+import os
+from datetime import datetime
+from typing import List
+
+import av
 import numpy as np
 import torch
+import torchvision
 from diffusers import AutoencoderKL, DDIMScheduler
+from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
 from einops import repeat
 from omegaconf import OmegaConf
 from PIL import Image
 from torchvision import transforms
 from transformers import CLIPVisionModelWithProjection
 
+from configs.prompts.test_cases import TestCasesDict
 from src.models.pose_guider import PoseGuider
 from src.models.unet_2d_condition import UNet2DConditionModel
 from src.models.unet_3d import UNet3DConditionModel
@@ -19,28 +28,42 @@ from src.pipelines.pipeline_pose2vid_long import Pose2VideoPipeline
 from src.utils.util import get_fps, read_frames, save_videos_grid
 
 
-class AnimateController:
-    def __init__(
-        self,
-        config_path="./configs/prompts/animation.yaml",
-        weight_dtype=torch.float16,
-    ):
+class Predictor(BasePredictor):
+    def setup(self) -> None:
+        """Load the model into memory to make running multiple predictions efficient"""
+        # self.model = torch.load("./weights.pth")
         # Read pretrained weights path from config
-        self.config = OmegaConf.load(config_path)
+        config_path="./configs/prompts/animation.yaml"
+        config = OmegaConf.load(config_path)
+        weight_dtype=torch.float16
+        self.config = config
         self.pipeline = None
         self.weight_dtype = weight_dtype
 
-    def animate(
+    def predict(
         self,
-        ref_image,
-        pose_video_path,
-        width=512,
-        height=768,
-        length=24,
-        num_inference_steps=25,
-        cfg=3.5,
-        seed=123,
-    ):
+        ref_image: Path = Input(description="Reference image to use for generation"),
+        pose_video_path: Path = Input(description="Motion sequence to use for generation"),
+        width: int = Input(
+            description="Width of the image to generate", default=512
+        ),
+        height: int = Input(
+            description="Height of the image to generate", default=784
+        ),
+        length: int = Input(
+            description="Length of the video to generate", default=24, le=120
+        ),
+        seed: int = Input(
+            description="Random seed to use for generation", default=-1
+        ),
+        cfg: float = Input(
+            description="Diffusion coefficient", default=3.5, ge=0, le=10
+        ),
+        num_inference_steps: int = Input(
+            description="Number of steps to run diffusion for", default=25
+        ),
+
+    ) -> Path:
         generator = torch.manual_seed(seed)
         if isinstance(ref_image, np.ndarray):
             ref_image = Image.fromarray(ref_image)
@@ -95,9 +118,10 @@ class AnimateController:
             )
             pipe = pipe.to("cuda", dtype=self.weight_dtype)
             self.pipeline = pipe
-        print("Running inference...")
-        print("pose_video_path", pose_video_path)
-        print(type(pose_video_path))
+
+        # open video
+        pose_video_path = str(pose_video_path)
+        ref_image = Image.open(ref_image).convert("RGB")
         pose_images = read_frames(pose_video_path)
         src_fps = get_fps(pose_video_path)
 
@@ -146,120 +170,4 @@ class AnimateController:
 
         torch.cuda.empty_cache()
 
-        return out_path
-
-
-controller = AnimateController()
-
-
-def ui():
-    with gr.Blocks() as demo:
-        gr.Markdown(
-            """
-            # Moore-AnimateAnyone Demo
-            """
-        )
-        animation = gr.Video(
-            format="mp4",
-            label="Animation Results",
-            height=448,
-            autoplay=True,
-        )
-
-        with gr.Row():
-            reference_image = gr.Image(label="Reference Image")
-            motion_sequence = gr.Video(
-                format="mp4", label="Motion Sequence", height=512
-            )
-
-            with gr.Column():
-                width_slider = gr.Slider(
-                    label="Width", minimum=448, maximum=768, value=512, step=64
-                )
-                height_slider = gr.Slider(
-                    label="Height", minimum=512, maximum=1024, value=768, step=64
-                )
-                length_slider = gr.Slider(
-                    label="Video Length", minimum=24, maximum=128, value=24, step=24
-                )
-                with gr.Row():
-                    seed_textbox = gr.Textbox(label="Seed", value=-1)
-                    seed_button = gr.Button(
-                        value="\U0001F3B2", elem_classes="toolbutton"
-                    )
-                    seed_button.click(
-                        fn=lambda: gr.Textbox.update(value=random.randint(1, 1e8)),
-                        inputs=[],
-                        outputs=[seed_textbox],
-                    )
-                with gr.Row():
-                    sampling_steps = gr.Slider(
-                        label="Sampling steps",
-                        value=25,
-                        info="default: 25",
-                        step=5,
-                        maximum=30,
-                        minimum=10,
-                    )
-                    guidance_scale = gr.Slider(
-                        label="Guidance scale",
-                        value=3.5,
-                        info="default: 3.5",
-                        step=0.5,
-                        maximum=10,
-                        minimum=2.0,
-                    )
-                submit = gr.Button("Animate")
-
-        def read_video(video):
-            return video
-
-        def read_image(image):
-            return Image.fromarray(image)
-
-        # when user uploads a new video
-        motion_sequence.upload(read_video, motion_sequence, motion_sequence)
-        # when `first_frame` is updated
-        reference_image.upload(read_image, reference_image, reference_image)
-        # when the `submit` button is clicked
-        submit.click(
-            controller.animate,
-            [
-                reference_image,
-                motion_sequence,
-                width_slider,
-                height_slider,
-                length_slider,
-                sampling_steps,
-                guidance_scale,
-                seed_textbox,
-            ],
-            animation,
-        )
-
-        # Examples
-        gr.Markdown("## Examples")
-        gr.Examples(
-            examples=[
-                [
-                    "./configs/inference/ref_images/anyone-5.png",
-                    "./configs/inference/pose_videos/anyone-video-2_kps.mp4",
-                ],
-                [
-                    "./configs/inference/ref_images/anyone-10.png",
-                    "./configs/inference/pose_videos/anyone-video-1_kps.mp4",
-                ],
-                [
-                    "./configs/inference/ref_images/anyone-2.png",
-                    "./configs/inference/pose_videos/anyone-video-5_kps.mp4",
-                ],
-            ],
-            inputs=[reference_image, motion_sequence],
-            outputs=animation,
-        )
-
-    return demo
-
-
-demo = ui()
-demo.launch(share=True)
+        return Path(out_path)
