@@ -26,7 +26,7 @@ from src.models.unet_2d_condition import UNet2DConditionModel
 from src.models.unet_3d import UNet3DConditionModel
 from src.pipelines.pipeline_pose2vid_long import Pose2VideoPipeline
 from src.utils.util import get_fps, read_frames, save_videos_grid
-
+from einops import rearrange
 
 class Predictor(BasePredictor):
     def setup(self) -> None:
@@ -44,6 +44,7 @@ class Predictor(BasePredictor):
         self,
         ref_image: Path = Input(description="Reference image to use for generation"),
         pose_video_path: Path = Input(description="Motion sequence to use for generation"),
+        render_vide2pose: bool = Input(description="Render video2pose", default=False),
         width: int = Input(
             description="Width of the image to generate", default=512
         ),
@@ -51,7 +52,7 @@ class Predictor(BasePredictor):
             description="Height of the image to generate", default=784
         ),
         length: int = Input(
-            description="Length of the video to generate", default=24, le=120
+            description="Length of the video to generate", default=24, le=500
         ),
         seed: int = Input(
             description="Random seed to use for generation", default=-1
@@ -64,6 +65,14 @@ class Predictor(BasePredictor):
         ),
 
     ) -> Path:
+        if render_vide2pose:
+            print("Rendering video2pose")
+            output = "./video.mp4"
+            # if video.mp4 exists, delete it
+            if os.path.exists(output):
+                os.remove("./video.mp4")
+            os.system(f"python vid2pose.py --video_path {pose_video_path}")
+            pose_video_path = output
         generator = torch.manual_seed(seed)
         if isinstance(ref_image, np.ndarray):
             ref_image = Image.fromarray(ref_image)
@@ -154,6 +163,8 @@ class Predictor(BasePredictor):
         pose_tensor = pose_tensor.transpose(0, 1)
         pose_tensor = pose_tensor.unsqueeze(0)
         video = torch.cat([ref_image_tensor, pose_tensor, video], dim=0)
+        # save video
+        
 
         save_dir = f"./output/gradio"
         if not os.path.exists(save_dir):
@@ -161,12 +172,38 @@ class Predictor(BasePredictor):
         date_str = datetime.now().strftime("%Y%m%d")
         time_str = datetime.now().strftime("%H%M")
         out_path = os.path.join(save_dir, f"{date_str}T{time_str}.mp4")
-        save_videos_grid(
-            video,
-            out_path,
-            n_rows=3,
-            fps=src_fps,
-        )
+        # save_videos_grid(
+        #     video,
+        #     out_path,
+        #     n_rows=3,
+        #     fps=src_fps,
+        # )
+
+        videos = rearrange(video, "b c t h w -> t b c h w")
+        
+        height, width = videos.shape[-2:]
+        outputs = []
+        x = videos
+        print(x.shape)  
+        path = out_path
+        fps = src_fps
+        n_rows = 3
+
+
+
+        for x in videos:
+            x = torchvision.utils.make_grid(x, nrow=n_rows)  # (c h w)
+            x = x.transpose(0, 1).transpose(1, 2).squeeze(-1)  # (h w c)
+            x = (x * 255).numpy().astype(np.uint8)
+            x = Image.fromarray(x)
+
+            outputs.append(x)
+
+        from src.utils.util import save_videos_from_pil
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        save_videos_from_pil(outputs, path, fps)
 
         torch.cuda.empty_cache()
 

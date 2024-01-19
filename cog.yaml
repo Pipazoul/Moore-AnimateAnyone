@@ -6,7 +6,10 @@ build:
   gpu: true
 
   # a list of ubuntu apt packages to install
-  # system_packages:
+  system_packages:
+    - ffmpeg
+    - libsm6 
+    - libxext6 
   #   - "libgl1-mesa-glx"
   #   - "libglib2.0-0"
 
@@ -43,6 +46,7 @@ build:
     - "torchvision==0.15.2"
     - "tqdm==4.66.1"
     - "transformers==4.30.2"
+    - "controlnet-aux"
     
   # commands run after the environment is setup
   # run:
