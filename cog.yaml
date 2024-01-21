@@ -54,4 +54,5 @@ build:
   #   - "echo another command if needed"
 
 # predict.py defines how predictions are run on your model
+image: "yassinsiouda/cog-moore-animate-anyone:latest"
 predict: "predict.py:Predictor"
