@@ -86,6 +86,36 @@ def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, f
     save_videos_from_pil(outputs, path, fps)
 
 
+def save_video(videos: torch.Tensor, path: str, rescale=False, fps=8):
+    # Select only the first video from the batch
+    first_video = videos[2:3]  # This slices the tensor to keep only the first video
+
+    # Rearrange the tensor to the desired format
+    first_video = rearrange(first_video, "b c t h w -> t b c h w")
+
+    # Initialize an empty list to hold the processed frames
+    outputs = []
+
+    # Process each frame in the video
+    for x in first_video:
+        x = torchvision.utils.make_grid(x, nrow=1)  # We use nrow=1 since we have only one video
+        x = x.transpose(0, 1).transpose(1, 2).squeeze(-1)  # Convert to (h w c)
+
+        if rescale:
+            x = (x + 1.0) / 2.0  # Rescale if needed
+
+        x = (x * 255).numpy().astype(np.uint8)
+        x = Image.fromarray(x)
+
+        outputs.append(x)
+
+    # Create directory if it does not exist
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    # Save the video
+    save_videos_from_pil(outputs, path, fps)
+
+
 def read_frames(video_path):
     container = av.open(video_path)
 

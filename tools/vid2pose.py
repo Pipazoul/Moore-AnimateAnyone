@@ -20,7 +20,7 @@ if __name__ == "__main__":
         os.path.dirname(args.video_path),
         os.path.splitext(os.path.basename(args.video_path))[0],
     )
-    out_path = os.path.join(dir_path, video_name + "_kps.mp4")
+    out_path = video_name + "_kps.mp4"
 
     detector = DWposeDetector()
     detector = detector.to(f"cuda")
@@ -35,4 +35,4 @@ if __name__ == "__main__":
         kps_results.append(result)
 
     print(out_path)
-    save_videos_from_pil(kps_results, out_path, fps=fps)
+    save_videos_from_pil(kps_results, "./video.mp4", fps=fps)

@@ -25,8 +25,9 @@ from src.models.pose_guider import PoseGuider
 from src.models.unet_2d_condition import UNet2DConditionModel
 from src.models.unet_3d import UNet3DConditionModel
 from src.pipelines.pipeline_pose2vid_long import Pose2VideoPipeline
-from src.utils.util import get_fps, read_frames, save_videos_grid
+from src.utils.util import get_fps, read_frames, save_videos_grid, save_video
 from einops import rearrange
+import cv2
 
 class Predictor(BasePredictor):
     def setup(self) -> None:
@@ -179,32 +180,6 @@ class Predictor(BasePredictor):
         #     fps=src_fps,
         # )
 
-        videos = rearrange(video, "b c t h w -> t b c h w")
-        
-        height, width = videos.shape[-2:]
-        outputs = []
-        x = videos
-        print(x.shape)  
-        path = out_path
-        fps = src_fps
-        n_rows = 3
-
-
-
-        for x in videos:
-            x = torchvision.utils.make_grid(x, nrow=n_rows)  # (c h w)
-            x = x.transpose(0, 1).transpose(1, 2).squeeze(-1)  # (h w c)
-            x = (x * 255).numpy().astype(np.uint8)
-            x = Image.fromarray(x)
-
-            outputs.append(x)
-
-        from src.utils.util import save_videos_from_pil
-
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-
-        save_videos_from_pil(outputs, path, fps)
-
-        torch.cuda.empty_cache()
-
+        # save video
+        save_video(video, out_path, fps=src_fps)
         return Path(out_path)
